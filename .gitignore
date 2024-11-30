@@ -1,2 +1,3 @@
 data/*
 !data/scannet_data
+!data/README.md
