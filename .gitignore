@@ -3,3 +3,5 @@ data/*
 !data/README.md
 results/*
 !results/.gitkeep
+temp_results/*
+!results/.gitkeep

@@ -71,14 +71,14 @@ def backproject_depth(depth, intrinsic, downsample_factor=4):
 
 def main():
     # Paths (modify these paths if your directory structure is different)
-    data_folder_path = "data/scannet_data/scans/scene0000_00/rgbd"
+    data_folder_path = "../data/scannet_data/scans/scene0000_00/rgbd"
     color_dir = os.path.join(data_folder_path, "color")
     depth_dir = os.path.join(data_folder_path, "depth")
     intrinsic_dir = os.path.join(data_folder_path, "intrinsic")
     pose_dir = os.path.join(data_folder_path, "pose")
 
-    output_ply = "output_model_points.ply"
-    output_mesh_ply = "output_model_mesh.ply"
+    output_ply = "outputs/output_model_points.ply"
+    output_mesh_ply = "outputs/output_model_mesh.ply"
 
     # Load intrinsic and extrinsic matrices
     intrinsic_depth_path = os.path.join(intrinsic_dir, "intrinsic_depth.txt")
@@ -106,6 +106,7 @@ def main():
 
     # Limit the number of images to process
     # image_indices = image_indices[:num_images_to_process]
+
 
     # Initialize an empty point cloud
     pcd = o3d.geometry.PointCloud()
@@ -233,7 +234,7 @@ def main():
     # Simplify the mesh to reduce the number of triangles
     print("Simplifying the mesh...")
     try:
-        target_number_of_triangles = 300000  # Adjust as needed
+        target_number_of_triangles = 200000  # Adjust as needed
         mesh = mesh.simplify_quadric_decimation(target_number_of_triangles=target_number_of_triangles)
         mesh.remove_degenerate_triangles()
         mesh.remove_duplicated_triangles()
