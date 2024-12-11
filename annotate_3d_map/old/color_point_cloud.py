@@ -31,6 +31,75 @@ def main():
 
     objects = combined_annotations['aggregated_annotations']['objects']
 
+    # Define the radius within which to color points (adjust based on your scale)
+    coloring_radius = 0.3  # meters, adjust as needed
+
+    # STEP 1: Filter out classes that don't have at least 3 objects
+    from collections import defaultdict
+    class_objects = defaultdict(list)
+    for obj in objects:
+        cls = obj['class']
+        class_objects[cls].append(obj)
+
+    # Keep only classes with at least 3 objects
+    filtered_objects = []
+    for cls, objs in class_objects.items():
+        if len(objs) >= 3:
+            filtered_objects.extend(objs)
+
+    if not filtered_objects:
+        print("No classes have at least 3 objects. Exiting.")
+        return
+
+    # STEP 2: Merge overlapping objects of the same class.
+    # If two objects of the same class are within 'coloring_radius' of each other, consider them the same object.
+    final_objects = []
+    for cls in set(obj['class'] for obj in filtered_objects):
+        # Get objects of this class
+        cls_objs = [obj for obj in filtered_objects if obj['class'] == cls]
+        positions = np.array([obj['position'] for obj in cls_objs], dtype=np.float64)
+
+        # We'll cluster them based on distance. Any objects within the coloring_radius are considered one cluster.
+        # A simple approach: 
+        # - Start from the first object, find all objects within coloring_radius, form a cluster.
+        # - Remove them from the list and continue until no objects remain.
+        
+        unvisited = set(range(len(positions)))
+        clusters = []
+        
+        while unvisited:
+            current = unvisited.pop()
+            # Start a cluster with the current object
+            cluster_points = [current]
+            # Check neighbors
+            to_check = [current]
+            
+            while to_check:
+                idx = to_check.pop()
+                # Calculate distances from idx to all unvisited
+                dist = np.linalg.norm(positions[list(unvisited)] - positions[idx], axis=1)
+                # Find nearby objects
+                nearby = [list(unvisited)[i] for i, d in enumerate(dist) if d < coloring_radius]
+                if nearby:
+                    for n in nearby:
+                        unvisited.remove(n)
+                        cluster_points.append(n)
+                        to_check.append(n)
+            
+            # One cluster found
+            clusters.append(cluster_points)
+        
+        # Now compute the centroid of each cluster and create a single object for it
+        for cluster_indices in clusters:
+            cluster_positions = positions[cluster_indices]
+            centroid = np.mean(cluster_positions, axis=0)
+            # Create a merged object
+            merged_obj = {
+                'class': cls,
+                'position': centroid.tolist()
+            }
+            final_objects.append(merged_obj)
+
     # Load the point cloud
     try:
         pcd = o3d.io.read_point_cloud(input_ply)
@@ -60,9 +129,6 @@ def main():
     # Build cKDTree from point cloud vertices
     kdtree = cKDTree(points)
 
-    # Define the radius within which to color points (adjust based on your scale)
-    coloring_radius = 0.3  # meters, adjust as needed
-
     # Define the color map once outside the loop
     color_map = {
         "chair": [1, 0, 0],          # Red
@@ -72,29 +138,29 @@ def main():
         "toilet": [1, 0, 1],         # Magenta
         "tv": [0, 1, 1],             # Cyan
         "laptop": [0.5, 0, 0],       # Dark Red
-        "mouse": [0, 0.5, 0],         # Dark Green
-        "remote": [0, 0, 0.5],        # Dark Blue
-        "keyboard": [0.5, 0.5, 0],    # Olive
-        "microwave": [0.5, 0, 0.5],   # Purple
-        "oven": [0, 0.5, 0.5],        # Teal
+        "mouse": [0, 0.5, 0],        # Dark Green
+        "remote": [0, 0, 0.5],       # Dark Blue
+        "keyboard": [0.5, 0.5, 0],   # Olive
+        "microwave": [0.5, 0, 0.5],  # Purple
+        "oven": [0, 0.5, 0.5],       # Teal
         "toaster": [0.75, 0.75, 0],  # Yellow-Orange
-        "sink": [0.75, 0, 0.75],      # Pink
+        "sink": [0.75, 0, 0.75],     # Pink
         "refrigerator": [0, 0.75, 0.75], # Light Blue
-        "book": [0.5, 0.25, 0],       # Brown
-        "clock": [0.25, 0.5, 0],      # Light Green
-        "vase": [0.25, 0, 0.5],       # Indigo
-        "scissors": [0.5, 0, 0],      # Dark Red
+        "book": [0.5, 0.25, 0],      # Brown
+        "clock": [0.25, 0.5, 0],     # Light Green
+        "vase": [0.25, 0, 0.5],      # Indigo
+        "scissors": [0.5, 0, 0],     # Dark Red
         "teddy bear": [0.75, 0.5, 0],# Orange
         "hair dryer": [0.25, 0.25, 0],# Olive
         "toothbrush": [0.25, 0, 0],  # Dark Pink
         "potted plant": [0, 0.25, 0], # Dark Green
-        "cup": [0, 0.25, 0.5],        # Light Blue
-        "bowl": [0.5, 0, 0.25]        # Maroon
+        "cup": [0, 0.25, 0.5],       # Light Blue
+        "bowl": [0.5, 0, 0.25]       # Maroon
     }
 
     # Assign colors to the points within the bounding box of each annotation
     print("Assigning colors to point cloud points based on detected objects...")
-    for obj in tqdm(objects, desc="Annotating objects"):
+    for obj in tqdm(final_objects, desc="Annotating objects"):
         try:
             position = np.array(obj['position'], dtype=np.float64)
             label = obj['class']

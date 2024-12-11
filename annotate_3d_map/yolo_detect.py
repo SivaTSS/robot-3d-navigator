@@ -44,7 +44,7 @@ def main():
     image_files = [f for f in os.listdir(color_dir) if f.endswith('.jpg')]
     image_indices = sorted([int(os.path.splitext(f)[0]) for f in image_files])
     # Process only every 25th image
-    image_indices = image_indices[::25]
+    image_indices = image_indices[::10]
 
     print(f"Running YOLO on {len(image_indices)} images...")
 

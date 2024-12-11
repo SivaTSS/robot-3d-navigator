@@ -55,58 +55,86 @@ def pixel_to_world(u, v, d_val, intrinsic, extrinsic_depth, pose, w, h, max_dist
         return None
     return p
 
-def merge_objects(objects, new_points, cls_name, distance_threshold=0.5):
-    if len(objects)==0:
-        return {
-            'class': cls_name,
-            'points_sum': new_points.sum(axis=0),
-            'points_count': len(new_points),
-            'bbox': [
-                float(np.min(new_points[:,0])),
-                float(np.min(new_points[:,1])),
-                float(np.min(new_points[:,2])),
-                float(np.max(new_points[:,0])),
-                float(np.max(new_points[:,1])),
-                float(np.max(new_points[:,2]))
-            ],
-            'merged_points':[new_points]
-        }
+def boxes_overlap(box1, box2):
+    # box: [xmin, ymin, zmin, xmax, ymax, zmax]
+    # Two boxes overlap if intervals overlap in all three dimensions
+    return (box1[0] <= box2[3] and box1[3] >= box2[0]) and \
+           (box1[1] <= box2[4] and box1[4] >= box2[1]) and \
+           (box1[2] <= box2[5] and box1[5] >= box2[2])
 
-    merged=False
+def merge_objects(objects, new_points, cls_name, distance_threshold=0.5):
+    """
+    Attempt to merge new_points into existing objects of the same class.
+    If no suitable object is found, create a new object entry.
+    Objects are considered the same if:
+      - They are the same class
+      - Their centroids are close OR their bounding boxes overlap.
+    """
+    new_box = [
+        float(np.min(new_points[:,0])),
+        float(np.min(new_points[:,1])),
+        float(np.min(new_points[:,2])),
+        float(np.max(new_points[:,0])),
+        float(np.max(new_points[:,1])),
+        float(np.max(new_points[:,2]))
+    ]
+    new_centroid = new_points.mean(axis=0)
+
+    merged = False
     for obj in objects:
         if obj['class'] == cls_name:
             centroid_obj = obj['points_sum']/obj['points_count']
-            centroid_new = new_points.mean(axis=0)
-            dist = np.linalg.norm(centroid_obj - centroid_new)
-            if dist<=distance_threshold:
+            dist = np.linalg.norm(centroid_obj - new_centroid)
+            # Check bounding box overlap
+            box_obj = obj['bbox']
+            overlap = boxes_overlap(box_obj, new_box)
+
+            if dist <= distance_threshold or overlap:
+                # Merge into this object
                 obj['points_sum'] += new_points.sum(axis=0)
                 obj['points_count'] += len(new_points)
-                obj['bbox'][0] = min(obj['bbox'][0], float(np.min(new_points[:,0])))
-                obj['bbox'][1] = min(obj['bbox'][1], float(np.min(new_points[:,1])))
-                obj['bbox'][2] = min(obj['bbox'][2], float(np.min(new_points[:,2])))
-                obj['bbox'][3] = max(obj['bbox'][3], float(np.max(new_points[:,0])))
-                obj['bbox'][4] = max(obj['bbox'][4], float(np.max(new_points[:,1])))
-                obj['bbox'][5] = max(obj['bbox'][5], float(np.max(new_points[:,2])))
+                obj['bbox'][0] = min(obj['bbox'][0], new_box[0])
+                obj['bbox'][1] = min(obj['bbox'][1], new_box[1])
+                obj['bbox'][2] = min(obj['bbox'][2], new_box[2])
+                obj['bbox'][3] = max(obj['bbox'][3], new_box[3])
+                obj['bbox'][4] = max(obj['bbox'][4], new_box[4])
+                obj['bbox'][5] = max(obj['bbox'][5], new_box[5])
                 obj['merged_points'].append(new_points)
-                merged=True
+                merged = True
                 break
+
     if not merged:
+        # Create a new object
         return {
             'class': cls_name,
             'points_sum': new_points.sum(axis=0),
             'points_count': len(new_points),
-            'bbox': [
-                float(np.min(new_points[:,0])),
-                float(np.min(new_points[:,1])),
-                float(np.min(new_points[:,2])),
-                float(np.max(new_points[:,0])),
-                float(np.max(new_points[:,1])),
-                float(np.max(new_points[:,2]))
-            ],
+            'bbox': new_box,
             'merged_points':[new_points]
         }
     else:
         return None
+
+def remove_noise_from_object(all_points, nb_neighbors=20, std_ratio=2.0):
+    """
+    Remove statistical outliers from the object's point set to clean noise.
+    """
+    pcd_obj = o3d.geometry.PointCloud()
+    pcd_obj.points = o3d.utility.Vector3dVector(all_points)
+    # Remove statistical outliers
+    pcd_clean, ind = pcd_obj.remove_statistical_outlier(nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+    clean_points = np.asarray(pcd_clean.points)
+    return clean_points
+
+def compute_density_center(points, radius=0.05):
+    """
+    Compute a density-based center by finding the point with the highest local density.
+    Density is defined as the number of points within `radius` of each point.
+    """
+    tree = cKDTree(points)
+    densities = [len(tree.query_ball_point(p, r=radius)) for p in points]
+    max_idx = np.argmax(densities)
+    return points[max_idx]
 
 def main():
     print("Starting SAM-based coloring...")
@@ -200,6 +228,7 @@ def main():
     merging_distance_threshold=0.5
     map_distance_threshold=0.02
     max_pixels_per_mask=2000
+    min_detections = 2  # Keep at least 2 merges
 
     intrinsics_cache={}
     pose_cache={}
@@ -291,8 +320,11 @@ def main():
             if new_obj is not None:
                 obj_list.append(new_obj)
 
+    # Filter objects: Only keep those with at least `min_detections` merges
+    obj_list = [o for o in obj_list if len(o['merged_points']) >= min_detections]
+
     if len(obj_list)==0:
-        print("No objects from SAM detections.")
+        print("No valid objects from SAM detections (or no objects with >=2 SAM detections).")
         # Just save map as is (both versions)
         # Normal annotated (no changes)
         pcd.colors=o3d.utility.Vector3dVector(vertex_colors_original)
@@ -307,12 +339,28 @@ def main():
         return
 
     final_objects=[]
-    object_id=0
-    # Assign IDs per class instance
     class_counts = {}
     for obj in obj_list:
-        all_obj_points=np.vstack(obj['merged_points'])
-        centroid=(obj['points_sum']/obj['points_count']).tolist()
+        all_obj_points = np.vstack(obj['merged_points'])
+
+        # Remove noise from the object's points
+        clean_points = remove_noise_from_object(all_obj_points, nb_neighbors=20, std_ratio=2.0)
+        if len(clean_points) == 0:
+            continue
+
+        # Recompute centroid and bounding box after noise removal
+        centroid = clean_points.mean(axis=0).tolist()
+        bbox = [
+            float(np.min(clean_points[:,0])),
+            float(np.min(clean_points[:,1])),
+            float(np.min(clean_points[:,2])),
+            float(np.max(clean_points[:,0])),
+            float(np.max(clean_points[:,1])),
+            float(np.max(clean_points[:,2]))
+        ]
+
+        # Compute density-based center
+        density_center = compute_density_center(clean_points, radius=0.05).tolist()
 
         cls_name=obj['class']
         if cls_name not in class_counts:
@@ -325,13 +373,22 @@ def main():
             'object_id':obj_id,
             'class':cls_name,
             'centroid':centroid,
-            'bbox_3d':obj['bbox'],
-            'points': all_obj_points
+            'bbox_3d':bbox,
+            'density_center': density_center,
+            'points': clean_points
         })
+
+    if len(final_objects)==0:
+        print("All objects removed after noise filtering.")
+        # Just save map as is (both versions)
+        pcd.colors=o3d.utility.Vector3dVector(vertex_colors_original)
+        o3d.io.write_point_cloud(annotated_ply, pcd)
+        pcd.colors=o3d.utility.Vector3dVector(np.ones((len(pcd.points),3)))
+        o3d.io.write_point_cloud(bleached_ply, pcd)
+        return
 
     print("Coloring map with objects...")
 
-    # For each object: color on vertex_colors_annotated and vertex_colors_bleached
     for obj in tqdm(final_objects, desc="Coloring"):
         color=color_map.get(obj['class'],[1,1,1])
         pts=obj['points']
@@ -356,7 +413,8 @@ def main():
             'object_id': obj['object_id'],
             'class': obj['class'],
             'position': obj['centroid'],
-            'bbox_3d': obj['bbox_3d']
+            'bbox_3d': obj['bbox_3d'],
+            'density_center': obj['density_center']
         })
 
     with open(final_anno_path,'w') as f:
