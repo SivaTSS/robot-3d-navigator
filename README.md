@@ -74,10 +74,12 @@ The project is structured around the following objectives:
 ### 5. 3D Object Mapping
 - Projected segmented objects into the 3D scene with unique visual indicators.
 
-<div style="display: flex; justify-content: center; align-items: center;">
-  <img src="assets/3d_obj_mapping_result.png" alt="3d_obj_mapping_result" style="max-height: 500px; margin-right: 20px;">
-  <img src="assets/3d_obj_mapping_result_samples.png" alt="3d_obj_mapping_result_Samples" style="max-height: 500px;">
-</div>
+<table>
+  <tr>
+    <td><img src="assets/3d_obj_mapping_result.png" alt="3d_obj_mapping_result" height="500"/></td>
+    <td><img src="assets/3d_obj_mapping_result_samples.png" alt="3d_obj_mapping_result_samples" height="500"/></td>
+  </tr>
+</table>
 
 ### 6. Bird’s-Eye View Generation
 - Created 2D occupancy grids from 3D point clouds for simplified spatial visualization.
@@ -89,7 +91,9 @@ The project is structured around the following objectives:
 ### 7. Optimal Path Planning
 - **In Progress**: Pathfinding algorithm to compute the optimal path between points of interest.
 
-<div style="display: flex; justify-content: center; align-items: center;">
-  <img src="assets/optimal_path_planning_1.png" alt="optimal_path_planning_1" style="max-height: 400px; margin-right: 20px;">
-  <img src="assets/optimal_path_planning_2.png" alt="optimal_path_planning_2" style="max-height: 400px;">
-</div>
+<table>
+  <tr>
+    <td><img src="assets/optimal_path_planning_1.png" alt="optimal_path_planning_1" height="400"/></td>
+    <td><img src="assets/optimal_path_planning_2.png" alt="optimal_path_planning_2" height="400"/></td>
+  </tr>
+</table>
